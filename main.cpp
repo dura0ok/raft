@@ -2,7 +2,6 @@
 #include <fstream>
 #include <iostream>
 #include <string>
-#include <vector>
 
 #include "config_parser.h"
 #include "dbg.h"
@@ -21,8 +20,8 @@ int main(const int argc, char *argv[])
     try
     {
         program.parse_args(argc, argv);
-        const std::string &config_path = program.get<std::string>("--config");
-        const int current_node_id = std::stoi(program.get<std::string>("--id"));
+        const auto &config_path = program.get<std::string>("--config");
+        const auto current_node_id = std::stoi(program.get<std::string>("--id"));
 
         const auto config = initConfig(config_path, current_node_id);
 
