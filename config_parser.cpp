@@ -2,7 +2,7 @@
 
 #include <yaml-cpp/yaml.h>
 
-RaftConfig parseConfig(const std::string &path)
+RaftConfig initConfig(const std::string &path, int current_node_id)
 {
     RaftConfig config;
     YAML::Node yamlConfig = YAML::LoadFile(path);
@@ -13,5 +13,6 @@ RaftConfig parseConfig(const std::string &path)
     }
 
     config.timeout = yamlConfig["election_timeout"].as<int>();
+    config.current_node_id = current_node_id;
     return config;
 }

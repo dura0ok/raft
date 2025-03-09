@@ -22,20 +22,11 @@ int main(const int argc, char *argv[])
     {
         program.parse_args(argc, argv);
         const std::string &config_path = program.get<std::string>("--config");
-        const int node_id = std::stoi(program.get<std::string>("--id"));
+        const int current_node_id = std::stoi(program.get<std::string>("--id"));
 
-        const auto config = parseConfig(config_path);
+        const auto config = initConfig(config_path, current_node_id);
 
-        dbg(config.timeout);
-
-        if (std::none_of(config.nodes.begin(), config.nodes.end(),
-                         [node_id](const auto &node) { return node.id == node_id; }))
-        {
-            std::cerr << "Error: Node ID " << node_id << " not found in config nodes.\n";
-            return EXIT_FAILURE;
-        }
-
-        RunServer();
+        RunServer(config);
     }
     catch (const std::exception &e)
     {

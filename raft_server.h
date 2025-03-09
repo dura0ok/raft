@@ -6,6 +6,8 @@
 #include <grpcpp/ext/proto_server_reflection_plugin.h>
 #include <grpcpp/grpcpp.h>
 
+#include "config_parser.h"
+
 class RaftServiceImpl final : public raft_protocol::RaftService::Service
 {
   public:
@@ -15,9 +17,18 @@ class RaftServiceImpl final : public raft_protocol::RaftService::Service
                                raft_protocol::AppendEntriesResponse *response) override;
 };
 
-inline void RunServer()
+inline void RunServer(const RaftConfig &config)
 {
-    std::string server_address("0.0.0.0:50051");
+    auto it = std::find_if(config.nodes.begin(), config.nodes.end(),
+                            [config](const auto &node) { return node.id == config.current_node_id; });
+
+    if (it == config.nodes.end())
+    {
+        std::cerr << "Error: Node ID " << config.current_node_id << " not found in config nodes.\n";
+        std::exit(EXIT_FAILURE);
+    }
+
+    std::string server_address = it->address + ":" + std::to_string(it->port);
     RaftServiceImpl service;
 
     grpc::EnableDefaultHealthCheckService(true);
@@ -27,7 +38,7 @@ inline void RunServer()
     builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
     builder.RegisterService(&service);
 
-    grpc::Server *server = builder.BuildAndStart().release();
+    std::unique_ptr<grpc::Server> server(builder.BuildAndStart());
 
     std::cout << "Server listening on " << server_address << std::endl;
     server->Wait();

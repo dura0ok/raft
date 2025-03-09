@@ -8,9 +8,10 @@
 struct RaftConfig
 {
     std::vector<NodeConfig> nodes;
+    int current_node_id;
     int timeout;
 };
 
-RaftConfig parseConfig(const std::string &filename);
+RaftConfig initConfig(const std::string &filename, int current_node_id);
 
 #endif
