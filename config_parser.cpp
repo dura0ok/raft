@@ -12,7 +12,8 @@ RaftConfig initConfig(const std::string &path, int current_node_id)
         config.nodes.push_back({node["id"].as<int>(), node["address"].as<std::string>(), node["port"].as<int>()});
     }
 
-    config.timeout = yamlConfig["election_timeout"].as<int>();
+    config.election_timeout = yamlConfig["election_timeout"].as<int>();
+    config.hearbeat_timeout = yamlConfig["heartbeat_timeout"].as<int>();
     config.current_node_id = current_node_id;
     return config;
 }
