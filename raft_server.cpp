@@ -1,6 +1,10 @@
 #include "raft_server.h"
 
+#include "http_server.h"
+
 #include "logger.h"
+#include <grpcpp/ext/proto_server_reflection_plugin.h>
+#include <grpcpp/grpcpp.h>
 
 grpc::Status RaftServiceImpl::RequestForVote(grpc::ServerContext *context,
                                              const raft_protocol::RequestVoteRequest *request,
@@ -83,5 +87,45 @@ void RunServer(const RaftConfig &config)
 
     std::thread server_thread([&server]() { server->Wait(); });
 
+    std::thread httpThread([server_address, it]()
+                          {
+                              RaftHTTPServer httpServer(grpc::CreateChannel(server_address, grpc::InsecureChannelCredentials()));
+                              httpServer.start( it->getPort());
+                          });
+    httpThread.join();
     server_thread.join();
+}
+
+grpc::Status RaftServiceImpl::Put(grpc::ServerContext *context,
+                 const raft_protocol::PutRequest *request,
+                 raft_protocol::PutResponse *response)
+{
+    std::lock_guard lock(node_.getMutex());
+    store_[request->key()] = request->value();
+    Logger::log("Put: key = " + request->key() + ", value = " + request->value());
+
+    response->set_success(true);
+    return grpc::Status::OK;
+}
+
+grpc::Status RaftServiceImpl::Get(grpc::ServerContext *context,
+                 const raft_protocol::GetRequest *request,
+                 raft_protocol::GetResponse *response)
+{
+    std::lock_guard lock(node_.getMutex());
+    auto it = store_.find(request->key());
+
+    if (it != store_.end())
+    {
+        response->set_value(it->second);
+        response->set_found(true);
+        Logger::log("Get: key = " + request->key() + " -> " + it->second);
+    }
+    else
+    {
+        response->set_found(false);
+        Logger::log("Get: key = " + request->key() + " not found");
+    }
+
+    return grpc::Status::OK;
 }

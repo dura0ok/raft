@@ -47,6 +47,20 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(argparse)
 
-add_executable(my_raft main.cpp config_parser.cpp raft_server.cpp node.cpp ticker.cpp)
+find_package(Crow CONFIG REQUIRED)
 
-target_link_libraries(my_raft PRIVATE yaml-cpp argparse protolib)
+#set(EXTERNAL_DIR ${CMAKE_BINARY_DIR}/external)
+#file(MAKE_DIRECTORY ${EXTERNAL_DIR})
+#
+#
+#
+##set(JSON_HPP_PATH ${EXTERNAL_DIR}/json.hpp)
+##if(NOT EXISTS ${JSON_HPP_PATH})
+##    message(STATUS "Downloading json.hpp...")
+##    file(DOWNLOAD https://github.com/nlohmann/json/releases/latest/download/json.hpp ${JSON_HPP_PATH} SHOW_PROGRESS)
+##endif()
+#
+#include_directories(${EXTERNAL_DIR})
+
+add_executable(my_raft main.cpp config_parser.cpp raft_server.cpp node.cpp ticker.cpp log_entry.cpp http_server.cpp)
+target_link_libraries(my_raft PRIVATE yaml-cpp argparse protolib Crow::Crow)
