@@ -47,6 +47,6 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(argparse)
 
-add_executable(my_raft main.cpp config_parser.cpp raft_server.cpp node.cpp)
+add_executable(my_raft main.cpp config_parser.cpp raft_server.cpp node.cpp ticker.cpp)
 
 target_link_libraries(my_raft PRIVATE yaml-cpp argparse protolib)

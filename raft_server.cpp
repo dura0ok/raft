@@ -1,27 +1,27 @@
 #include "raft_server.h"
-#include "util.hpp"
+
+#include "logger.h"
 
 grpc::Status RaftServiceImpl::RequestForVote(grpc::ServerContext *context,
                                              const raft_protocol::RequestVoteRequest *request,
                                              raft_protocol::RequestVoteResponse *response)
 {
-    std::cout << "Received RequestForVote: term = " << request->term() << ", candidateId = " << request->candidateid()
-              << " " << getCurrentMsTime() << std::endl;
+    Logger::log("Received RequestForVote: term = " + std::to_string(request->term()) +
+                ", candidateId = " + request->candidateid());
+    std::lock_guard lock(node_.getMutex());
 
-    std::lock_guard lock(node.mutex);
-
-    if (request->term() > node.current_term)
+    if (request->term() > node_.getCurrentTerm())
     {
-        node.current_term = request->term();
-        node.state = NodeState::FOLLOWER;
-        node.voted_for = -1;
+        node_.setCurrentTerm(request->term());
+        node_.setState(NodeState::FOLLOWER);
+        node_.setVotedFor(-1);
     }
 
     const auto request_candidate_id = std::stoi(request->candidateid());
 
-    if (node.voted_for == -1 || node.voted_for == request_candidate_id)
+    if ((node_.getVotedFor() == -1 || node_.getVotedFor() == request_candidate_id))
     {
-        node.voted_for = request_candidate_id;
+        node_.setVotedFor(request_candidate_id);
         response->set_votegranted(true);
     }
     else
@@ -29,7 +29,7 @@ grpc::Status RaftServiceImpl::RequestForVote(grpc::ServerContext *context,
         response->set_votegranted(false);
     }
 
-    response->set_term(node.current_term);
+    response->set_term(node_.getCurrentTerm());
     return grpc::Status::OK;
 }
 
@@ -37,20 +37,51 @@ grpc::Status RaftServiceImpl::AppendEntries(grpc::ServerContext *context,
                                             const raft_protocol::AppendEntriesRequest *request,
                                             raft_protocol::AppendEntriesResponse *response)
 {
-    std::cout << "Received AppendEntries: term = " << request->term() << ", leaderId = " << request->leaderid() << " "
-              << getCurrentMsTime() << std::endl;
+    Logger::log("Received AppendEntries: term = " + std::to_string(request->term()) +
+                ", leaderId = " + request->leaderid());
+    std::lock_guard lock(node_.getMutex());
 
-    std::lock_guard lock(node.mutex);
-
-    if (request->term() >= node.current_term)
+    if (request->term() >= node_.getCurrentTerm())
     {
-        node.current_term = request->term();
-        node.state = NodeState::FOLLOWER;
-        node.voted_for = std::stoi(request->leaderid());
-        node.resetElectionTimer();
+        node_.setCurrentTerm(request->term());
+        node_.setState(NodeState::FOLLOWER);
+        node_.setVotedFor(std::stoi(request->leaderid()));
+        node_.resetElectionTimer();
     }
 
-    response->set_term(node.current_term);
+    response->set_term(node_.getCurrentTerm());
     response->set_success(true);
     return grpc::Status::OK;
+}
+
+void RunServer(const RaftConfig &config)
+{
+    auto it = std::find_if(config.nodes.begin(), config.nodes.end(),
+                           [config](const auto &node) { return node.getId() == config.current_node_id; });
+
+    if (it == config.nodes.end())
+    {
+        std::cerr << "Error: Node ID " << config.current_node_id << " not found in config nodes.\n";
+        std::exit(EXIT_FAILURE);
+    }
+
+    auto cur_node = RaftNode(config.nodes, *it, config.election_timeout, config.hearbeat_timeout);
+
+    std::string server_address = it->getAddress() + ":" + std::to_string(it->getPort());
+    RaftServiceImpl service(config, cur_node);
+
+    grpc::EnableDefaultHealthCheckService(true);
+    grpc::reflection::InitProtoReflectionServerBuilderPlugin();
+
+    grpc::ServerBuilder builder;
+    builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
+    builder.RegisterService(&service);
+
+    std::unique_ptr server(builder.BuildAndStart());
+
+    Logger::log("Server listening on " + server_address);
+
+    std::thread server_thread([&server]() { server->Wait(); });
+
+    server_thread.join();
 }

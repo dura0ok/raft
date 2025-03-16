@@ -4,7 +4,6 @@
 #include <string>
 
 #include "config_parser.h"
-#include "dbg.h"
 #include "raft_server.h"
 
 int main(const int argc, char *argv[])
