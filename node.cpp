@@ -39,6 +39,10 @@ void RaftNode::sendHeartbeats() const
 void RaftNode::startElection()
 {
     std::lock_guard lock(mutex_);
+
+    Logger::log("Node " + std::to_string(config_.getId()) + " is attempting to start election for term " +
+                std::to_string(current_term_));
+
     setState(NodeState::CANDIDATE);
     ++current_term_;
     setVotedFor(config_.getId());
@@ -46,13 +50,19 @@ void RaftNode::startElection()
     int votes = 1;
     auto majority = node_configs_.size() / 2 + 1;
 
-    Logger::log("Node " + std::to_string(config_.getId()) + " starting election for term " +
-                std::to_string(getCurrentTerm()));
+    Logger::log("Node " + std::to_string(config_.getId()) + " has become CANDIDATE for term " +
+                std::to_string(current_term_));
 
     for (const auto &item : node_configs_)
     {
         if (config_.getId() == item.getId())
+        {
+            Logger::log("Skipping voting request for self (Node ID: " + std::to_string(config_.getId()) + ")");
             continue;
+        }
+
+        Logger::log("Node " + std::to_string(config_.getId()) + " requesting vote from Node " +
+                    std::to_string(item.getId()) + " for term " + std::to_string(current_term_));
 
         raft_protocol::RequestVoteRequest request;
         request.set_term(current_term_);
@@ -61,24 +71,51 @@ void RaftNode::startElection()
         raft_protocol::RequestVoteResponse response;
         grpc::ClientContext context;
         context.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(1));
+
         auto stub = raft_protocol::RaftService::NewStub(grpc::CreateChannel(
             item.getAddress() + ":" + std::to_string(item.getPort()), grpc::InsecureChannelCredentials()));
+
+        Logger::log("Sending vote request to Node " + std::to_string(item.getId()));
         grpc::Status status = stub->RequestForVote(&context, request, &response);
 
-        if (status.ok() && response.votegranted())
+        if (status.ok())
         {
-            votes++;
+            if (response.votegranted())
+            {
+                Logger::log("Node " + std::to_string(item.getId()) + " granted vote to Node " +
+                            std::to_string(config_.getId()) + " for term " + std::to_string(current_term_));
+                votes++;
+            }
+            else
+            {
+                Logger::log("Node " + std::to_string(item.getId()) + " did not grant vote to Node " +
+                            std::to_string(config_.getId()) + " for term " + std::to_string(current_term_));
+            }
+        }
+        else
+        {
+            Logger::log("Failed to send vote request to Node " + std::to_string(item.getId()) + " Error: " +
+                        status.error_message());
         }
     }
+
+    Logger::log("Node " + std::to_string(config_.getId()) + " has received " + std::to_string(votes) +
+                " votes in total for term " + std::to_string(current_term_));
 
     if (votes >= majority)
     {
         setState(NodeState::LEADER);
-        Logger::log("Node " + std::to_string(config_.getId()) + " won election for term " +
+        Logger::log("Node " + std::to_string(config_.getId()) + " has won the election and is now the LEADER for term " +
                     std::to_string(current_term_));
         sendHeartbeats();
     }
+    else
+    {
+        Logger::log("Node " + std::to_string(config_.getId()) + " failed to win election for term " +
+                    std::to_string(current_term_));
+    }
 }
+
 
 void RaftNode::resetElectionTimer()
 {

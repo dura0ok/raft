@@ -12,28 +12,37 @@ grpc::Status RaftServiceImpl::RequestForVote(grpc::ServerContext *context,
 {
     Logger::log("Received RequestForVote: term = " + std::to_string(request->term()) +
                 ", candidateId = " + request->candidateid());
+
     std::lock_guard lock(node_.getMutex());
 
     if (request->term() > node_.getCurrentTerm())
     {
+        Logger::log("RequestForVote: Updating current term from " + std::to_string(node_.getCurrentTerm()) + " to " +
+                    std::to_string(request->term()));
         node_.setCurrentTerm(request->term());
         node_.setState(NodeState::FOLLOWER);
         node_.setVotedFor(-1);
+        Logger::log("Node is now FOLLOWER with term " + std::to_string(node_.getCurrentTerm()));
     }
 
     const auto request_candidate_id = std::stoi(request->candidateid());
 
     if ((node_.getVotedFor() == -1 || node_.getVotedFor() == request_candidate_id))
     {
+        Logger::log("Granting vote to candidate " + std::to_string(request_candidate_id));
         node_.setVotedFor(request_candidate_id);
         response->set_votegranted(true);
     }
     else
     {
+        Logger::log("Vote not granted. Already voted for " + std::to_string(node_.getVotedFor()));
         response->set_votegranted(false);
     }
 
     response->set_term(node_.getCurrentTerm());
+    Logger::log("Responding with term " + std::to_string(node_.getCurrentTerm()) +
+                " and vote granted status: " + (response->votegranted() ? "true" : "false"));
+
     return grpc::Status::OK;
 }
 
@@ -43,18 +52,26 @@ grpc::Status RaftServiceImpl::AppendEntries(grpc::ServerContext *context,
 {
     Logger::log("Received AppendEntries: term = " + std::to_string(request->term()) +
                 ", leaderId = " + request->leaderid());
+
     std::lock_guard lock(node_.getMutex());
 
     if (request->term() >= node_.getCurrentTerm())
     {
+        Logger::log("AppendEntries: Updating current term from " + std::to_string(node_.getCurrentTerm()) + " to " +
+                    std::to_string(request->term()));
         node_.setCurrentTerm(request->term());
         node_.setState(NodeState::FOLLOWER);
         node_.setVotedFor(std::stoi(request->leaderid()));
         node_.resetElectionTimer();
+        Logger::log("Node is now FOLLOWER, voted for leader " + request->leaderid() +
+                    ", reset election timer.");
     }
 
     response->set_term(node_.getCurrentTerm());
     response->set_success(true);
+    Logger::log("Responding to AppendEntries with term " + std::to_string(node_.getCurrentTerm()) +
+                " and success status: true");
+
     return grpc::Status::OK;
 }
 
