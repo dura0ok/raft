@@ -4,6 +4,7 @@
 #include <grpcpp/client_context.h>
 #include <grpcpp/create_channel.h>
 #include <grpcpp/security/credentials.h>
+#include <grpc++/channel.h>
 #include <proto/raft.grpc.pb.h>
 #include <proto/raft.pb.h>
 #include <random>
@@ -26,8 +27,16 @@ void RaftNode::sendHeartbeats() const
             grpc::ClientContext context;
             context.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(1));
 
-            auto stub = raft_protocol::RaftService::NewStub(grpc::CreateChannel(
-                item.getAddress() + ":" + std::to_string(item.getPort()), grpc::InsecureChannelCredentials()));
+            grpc::ChannelArguments channel_args;
+            channel_args.SetInt(GRPC_ARG_MAX_RECONNECT_BACKOFF_MS, 10);
+            auto channel = grpc::CreateCustomChannel(
+                item.getAddress() + ":" + std::to_string(item.getPort()),
+                grpc::InsecureChannelCredentials(),
+                channel_args
+            );
+
+            auto stub = raft_protocol::RaftService::NewStub(channel);
+
             stub->AppendEntries(&context, request, &response);
             Logger::log("Sended to " + std::to_string(item.getId()));
         }
@@ -72,8 +81,16 @@ void RaftNode::startElection()
         grpc::ClientContext context;
         context.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(1));
 
-        auto stub = raft_protocol::RaftService::NewStub(grpc::CreateChannel(
-            item.getAddress() + ":" + std::to_string(item.getPort()), grpc::InsecureChannelCredentials()));
+        grpc::ChannelArguments channel_args;
+        channel_args.SetInt(GRPC_ARG_MAX_RECONNECT_BACKOFF_MS, 10);
+        auto channel = grpc::CreateCustomChannel(
+            item.getAddress() + ":" + std::to_string(item.getPort()),
+            grpc::InsecureChannelCredentials(),
+            channel_args
+        );
+
+        auto stub = raft_protocol::RaftService::NewStub(channel);
+
 
         Logger::log("Sending vote request to Node " + std::to_string(item.getId()));
         grpc::Status status = stub->RequestForVote(&context, request, &response);
