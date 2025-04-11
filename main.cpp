@@ -20,7 +20,7 @@ int main(const int argc, char *argv[])
     {
         program.parse_args(argc, argv);
         const auto &config_path = program.get<std::string>("--config");
-        const auto current_node_id = std::stoi(program.get<std::string>("--id"));
+        const auto current_node_id = program.get<std::string>("--id");
 
         const auto config = initConfig(config_path, current_node_id);
 

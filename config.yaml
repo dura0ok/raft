@@ -1,18 +1,18 @@
 nodes:
   - id: 1
-    address: "127.0.0.1"
+    address: "0.0.0.0"
     port: 5001
   - id: 2
-    address: "127.0.0.1"
+    address: "0.0.0.0"
     port: 5002
   - id: 3
-    address: "127.0.0.1"
+    address: "0.0.0.0"
     port: 5003
   - id: 4
-    address: "127.0.0.1"
-    port: 5004
+    address: "192.168.140.209"
+    port: 8001
   - id: 5
-    address: "127.0.0.1"
-    port: 5005
+    address: "192.168.140.209"
+    port: 8002
 election_timeout: 500
 heartbeat_timeout: 100

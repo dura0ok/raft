@@ -3,52 +3,111 @@ syntax = "proto3";
 package raft_protocol;
 option go_package = "./raft_protocol";
 
+message Value {
+  message Null {}
+
+  message Boolean {
+    bool value = 1;
+  }
+
+  message Number {
+    double value = 1;
+  }
+
+  message String {
+    string value = 1;
+  }
+
+  message Array {
+    repeated Value value = 1;
+  }
+
+  message Object {
+    map<string, Value> value = 1;
+  }
+
+  oneof Type {
+    String string = 1;
+    Boolean boolean = 2;
+    Number number = 3;
+    Array array = 4;
+    Object object = 5;
+    Null null = 6;
+  }
+}
+
+message Command {
+  message Get {
+    string key = 1;
+  }
+
+  message Set {
+    string key = 1;
+    Value value = 2;
+  }
+
+  message CompareAndSet {
+    string key = 1;
+    Value oldValue = 2;
+    Value NewValue = 3;
+  }
+
+  message Delete {
+    string key = 1;
+  }
+
+  message AddElement {
+    string key = 1;
+    string subKey = 2;
+    Value value = 3;
+  }
+
+  oneof Type {
+    Get get = 2;
+    Set set = 3;
+    CompareAndSet compareAndSet = 4;
+    Delete delete = 5;
+    AddElement addElement = 6;
+  }
+
+  string id = 1;
+}
+
+message LogEntry {
+  uint32 term = 2;
+  Command command = 3;
+}
+
 message RequestVoteRequest {
-  int32 term = 1;
+  uint32 term = 1;
   string candidateId = 2;
-  int32 lastLogIndex = 3;
-  int32 lastLogTerm = 4;
+  uint64 lastLogIndex = 3;
+  uint32 lastLogTerm = 4;
 }
 
 message RequestVoteResponse {
-  int32 term = 1;
+  uint32 term = 1;
   bool voteGranted = 2;
 }
 
 message AppendEntriesRequest {
-  int32 term = 1;
+  uint32 term = 1;
   string leaderId = 2;
-  int32 prevLogIndex = 3;
-  int32 prevLogTerm = 4;
-  int32 leaderCommit = 5;
+  uint64 prevLogIndex = 3;
+  uint32 prevLogTerm = 4;
+  repeated LogEntry entries = 5;
+  uint64 leaderCommit = 6;
 }
 
 message AppendEntriesResponse {
-  int32 term = 1;
+  uint32 term = 1;
   bool success = 2;
-}
-
-message PutRequest {
-  string key = 1;
-  string value = 2;
-}
-
-message PutResponse {
-  bool success = 1;
-}
-
-message GetRequest {
-  string key = 1;
-}
-
-message GetResponse {
-  string value = 1;
-  bool found = 2;
+  uint32 conflictTerm = 3;
+  uint64 conflictIndex = 4;
 }
 
 service RaftService {
   rpc RequestForVote(RequestVoteRequest) returns (RequestVoteResponse) {}
+
   rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse) {}
-  rpc Put(PutRequest) returns (PutResponse) {}
-  rpc Get(GetRequest) returns (GetResponse) {}
 }

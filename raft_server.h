@@ -16,14 +16,6 @@ class RaftServiceImpl final : public raft_protocol::RaftService::Service
     grpc::Status AppendEntries(grpc::ServerContext *context, const raft_protocol::AppendEntriesRequest *request,
                                raft_protocol::AppendEntriesResponse *response) override;
 
-    grpc::Status Put(grpc::ServerContext *context,
-                    const raft_protocol::PutRequest *request,
-                    raft_protocol::PutResponse *response) override;
-
-    grpc::Status Get(grpc::ServerContext *context,
-                    const raft_protocol::GetRequest *request,
-                    raft_protocol::GetResponse *response) override;
-
   private:
     std::unordered_map<std::string, std::string> store_;
     const RaftConfig &config_;

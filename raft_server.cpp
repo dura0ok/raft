@@ -13,35 +13,39 @@ grpc::Status RaftServiceImpl::RequestForVote(grpc::ServerContext *context,
     Logger::log("Received RequestForVote: term = " + std::to_string(request->term()) +
                 ", candidateId = " + request->candidateid());
 
+    Logger::log("Request for vote lock guard try");
     std::lock_guard lock(node_.getMutex());
-
+    Logger::log("Request for vote lock guard after");
+    Logger::log("ЗАХОЖУ В IF ");
     if (request->term() > node_.getCurrentTerm())
     {
         Logger::log("RequestForVote: Updating current term from " + std::to_string(node_.getCurrentTerm()) + " to " +
                     std::to_string(request->term()));
         node_.setCurrentTerm(request->term());
         node_.setState(NodeState::FOLLOWER);
-        node_.setVotedFor(-1);
+        node_.setVotedFor("");
         Logger::log("Node is now FOLLOWER with term " + std::to_string(node_.getCurrentTerm()));
     }
 
-    const auto request_candidate_id = std::stoi(request->candidateid());
-
-    if ((node_.getVotedFor() == -1 || node_.getVotedFor() == request_candidate_id))
+    const auto& request_candidate_id = request->candidateid();
+    Logger::log("ЗАХОЖУ В IF 2");
+    if ((node_.getVotedFor().empty() || node_.getVotedFor() == request_candidate_id))
     {
-        Logger::log("Granting vote to candidate " + std::to_string(request_candidate_id));
+        Logger::log("Granting vote to candidate " + request_candidate_id);
         node_.setVotedFor(request_candidate_id);
         response->set_votegranted(true);
+        node_.resetElectionTimer();
     }
     else
     {
-        Logger::log("Vote not granted. Already voted for " + std::to_string(node_.getVotedFor()));
+        Logger::log("Vote not granted. Already voted for " + node_.getVotedFor());
         response->set_votegranted(false);
     }
 
     response->set_term(node_.getCurrentTerm());
     Logger::log("Responding with term " + std::to_string(node_.getCurrentTerm()) +
                 " and vote granted status: " + (response->votegranted() ? "true" : "false"));
+    Logger::log("Lock guard Request for vote finished");
 
     return grpc::Status::OK;
 }
@@ -53,7 +57,9 @@ grpc::Status RaftServiceImpl::AppendEntries(grpc::ServerContext *context,
     Logger::log("Received AppendEntries: term = " + std::to_string(request->term()) +
                 ", leaderId = " + request->leaderid());
 
+    Logger::log("AppendEntries lock guard try");
     std::lock_guard lock(node_.getMutex());
+    Logger::log("AppendEntries lock guard after");
 
     if (request->term() >= node_.getCurrentTerm())
     {
@@ -61,7 +67,7 @@ grpc::Status RaftServiceImpl::AppendEntries(grpc::ServerContext *context,
                     std::to_string(request->term()));
         node_.setCurrentTerm(request->term());
         node_.setState(NodeState::FOLLOWER);
-        node_.setVotedFor(std::stoi(request->leaderid()));
+        node_.setVotedFor(request->leaderid());
         node_.resetElectionTimer();
         Logger::log("Node is now FOLLOWER, voted for leader " + request->leaderid() +
                     ", reset election timer.");
@@ -71,7 +77,7 @@ grpc::Status RaftServiceImpl::AppendEntries(grpc::ServerContext *context,
     response->set_success(true);
     Logger::log("Responding to AppendEntries with term " + std::to_string(node_.getCurrentTerm()) +
                 " and success status: true");
-
+    Logger::log("Lock guard AppendEntries finished");
     return grpc::Status::OK;
 }
 
@@ -111,38 +117,4 @@ void RunServer(const RaftConfig &config)
                           });
     httpThread.join();
     server_thread.join();
-}
-
-grpc::Status RaftServiceImpl::Put(grpc::ServerContext *context,
-                 const raft_protocol::PutRequest *request,
-                 raft_protocol::PutResponse *response)
-{
-    std::lock_guard lock(node_.getMutex());
-    store_[request->key()] = request->value();
-    Logger::log("Put: key = " + request->key() + ", value = " + request->value());
-
-    response->set_success(true);
-    return grpc::Status::OK;
-}
-
-grpc::Status RaftServiceImpl::Get(grpc::ServerContext *context,
-                 const raft_protocol::GetRequest *request,
-                 raft_protocol::GetResponse *response)
-{
-    std::lock_guard lock(node_.getMutex());
-    auto it = store_.find(request->key());
-
-    if (it != store_.end())
-    {
-        response->set_value(it->second);
-        response->set_found(true);
-        Logger::log("Get: key = " + request->key() + " -> " + it->second);
-    }
-    else
-    {
-        response->set_found(false);
-        Logger::log("Get: key = " + request->key() + " not found");
-    }
-
-    return grpc::Status::OK;
 }

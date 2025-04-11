@@ -26,6 +26,7 @@ class Ticker
     std::thread thread_;
     std::mutex mutex_;
     std::condition_variable cv_;
+    std::mutex cv_mutex_;
     std::chrono::steady_clock::time_point deadline_;
     int start_election_timeout_;
 };

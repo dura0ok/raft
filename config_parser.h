@@ -7,11 +7,11 @@
 struct RaftConfig
 {
     std::vector<NodeConfig> nodes;
-    int current_node_id;
+    std::string current_node_id;
     int election_timeout;
     int hearbeat_timeout;
 };
 
-RaftConfig initConfig(const std::string &filename, int current_node_id);
+RaftConfig initConfig(const std::string &filename, const std::string &current_node_id);
 
 #endif

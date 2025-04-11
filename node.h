@@ -20,11 +20,11 @@ enum class NodeState
 class NodeConfig
 {
   public:
-    NodeConfig(const int id, std::string address, const int port) : id_(id), address_(std::move(address)), port_(port)
+    NodeConfig(const std::string& id, std::string address, const int port) : id_(id), address_(std::move(address)), port_(port)
     {
     }
 
-    [[nodiscard]] int getId() const
+    [[nodiscard]] std::string getId() const
     {
         return id_;
     }
@@ -38,7 +38,7 @@ class NodeConfig
     }
 
   private:
-    int id_;
+    std::string id_;
     std::string address_;
     int port_;
 };
@@ -55,7 +55,7 @@ class RaftNode
 
     void startElection();
     void resetElectionTimer();
-    void sendHeartbeats() const;
+    void sendHeartbeats();
     void requestVotes(std::atomic<int> &votes, int majority);
     void declareLeader();
     void run();
@@ -68,15 +68,15 @@ class RaftNode
     {
         current_term_ = term;
     }
-    int getVotedFor() const
+    [[nodiscard]] std::string getVotedFor() const
     {
-        return voted_for_.load();
+        return voted_for_;
     }
-    void setVotedFor(const int candidateId)
+    void setVotedFor(const std::string& candidateId)
     {
         voted_for_ = candidateId;
     }
-    NodeState getState() const
+    [[nodiscard]] NodeState getState() const
     {
         return state_.load();
     }
@@ -90,10 +90,11 @@ class RaftNode
     }
 
   private:
+    bool tryToBecameLeader();
     std::mutex mutex_;
     NodeConfig config_;
     std::atomic<int> current_term_{0};
-    std::atomic<int> voted_for_{-1};
+    std::string voted_for_{};
     std::atomic<NodeState> state_{NodeState::FOLLOWER};
     const std::vector<NodeConfig> &node_configs_;
     Ticker ticker_;
