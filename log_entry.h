@@ -31,6 +31,7 @@ class Log
     int getLastTerm() const;
     int getLastIndex() const;
     std::vector<LogEntry> getEntriesAfter(int index) const;
+    void deleteEntriesFrom(int index);
 
   private:
     std::vector<LogEntry> entries;

@@ -1,5 +1,7 @@
 #include "log_entry.h"
 
+#include <stdexcept>
+
 void Log::addEntry(const LogEntry &entry)
 {
     entries.push_back(entry);
@@ -25,4 +27,13 @@ std::vector<LogEntry> Log::getEntriesAfter(int index) const
     if (index + 1 >= static_cast<int>(entries.size()))
         return {};
     return {entries.begin() + index + 1, entries.end()};
+}
+
+void Log::deleteEntriesFrom(int index)
+{
+    if (index < 0 || index >= static_cast<int>(entries.size()))
+    {
+        throw std::out_of_range("Index out of range");
+    }
+    entries.erase(entries.begin() + index, entries.end());
 }

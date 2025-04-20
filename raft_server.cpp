@@ -13,14 +13,14 @@ grpc::Status RaftServiceImpl::RequestForVote(grpc::ServerContext *context,
     Logger::log("Received RequestForVote: term = " + std::to_string(request->term()) +
                 ", candidateId = " + request->candidateid());
 
-    Logger::log("Request for vote lock guard try");
+    //Logger::log("Request for vote lock guard try");
     std::lock_guard lock(node_.getMutex());
-    Logger::log("Request for vote lock guard after");
-    Logger::log("ЗАХОЖУ В IF ");
+    //Logger::log("Request for vote lock guard after");
+    //Logger::log("ЗАХОЖУ В IF ");
     if (request->term() > node_.getCurrentTerm())
     {
-        Logger::log("RequestForVote: Updating current term from " + std::to_string(node_.getCurrentTerm()) + " to " +
-                    std::to_string(request->term()));
+       // Logger::log("RequestForVote: Updating current term from " + std::to_string(node_.getCurrentTerm()) + " to " +
+        //            std::to_string(request->term()));
         node_.setCurrentTerm(request->term());
         node_.setState(NodeState::FOLLOWER);
         node_.setVotedFor("");
@@ -28,7 +28,7 @@ grpc::Status RaftServiceImpl::RequestForVote(grpc::ServerContext *context,
     }
 
     const auto& request_candidate_id = request->candidateid();
-    Logger::log("ЗАХОЖУ В IF 2");
+    //Logger::log("ЗАХОЖУ В IF 2");
     if ((node_.getVotedFor().empty() || node_.getVotedFor() == request_candidate_id))
     {
         Logger::log("Granting vote to candidate " + request_candidate_id);
@@ -45,7 +45,7 @@ grpc::Status RaftServiceImpl::RequestForVote(grpc::ServerContext *context,
     response->set_term(node_.getCurrentTerm());
     Logger::log("Responding with term " + std::to_string(node_.getCurrentTerm()) +
                 " and vote granted status: " + (response->votegranted() ? "true" : "false"));
-    Logger::log("Lock guard Request for vote finished");
+    //Logger::log("Lock guard Request for vote finished");
 
     return grpc::Status::OK;
 }
@@ -57,29 +57,118 @@ grpc::Status RaftServiceImpl::AppendEntries(grpc::ServerContext *context,
     Logger::log("Received AppendEntries: term = " + std::to_string(request->term()) +
                 ", leaderId = " + request->leaderid());
 
-    Logger::log("AppendEntries lock guard try");
     std::lock_guard lock(node_.getMutex());
-    Logger::log("AppendEntries lock guard after");
 
-    if (request->term() >= node_.getCurrentTerm())
+    if (request->term() < node_.getCurrentTerm())
     {
-        node_.setLeaderId(request->leaderid());
+        response->set_term(node_.getCurrentTerm());
+        response->set_success(false);
+        Logger::log("AppendEntries rejected: term is less than current term");
+        return grpc::Status::OK;
+    }
 
-        Logger::log("AppendEntries: Updating current term from " + std::to_string(node_.getCurrentTerm()) + " to " +
-                    std::to_string(request->term()));
+    if (request->term() > node_.getCurrentTerm())
+    {
+        Logger::log("Updating term from " + std::to_string(node_.getCurrentTerm()) +
+                    " to " + std::to_string(request->term()));
         node_.setCurrentTerm(request->term());
-        node_.setState(NodeState::FOLLOWER);
-        node_.setVotedFor(request->leaderid());
-        node_.resetElectionTimer();
-        Logger::log("Node is now FOLLOWER, voted for leader " + request->leaderid() +
-                    ", reset election timer.");
+    }
+
+    node_.setLeaderId(request->leaderid());
+    node_.setState(NodeState::FOLLOWER);
+    node_.setVotedFor(request->leaderid());
+    node_.resetElectionTimer();
+
+    const int prevLogIndex = request->prevlogindex();
+    const int prevLogTerm = request->prevlogterm();
+
+    if (prevLogIndex > 0 && prevLogIndex <= node_.log_.getLastIndex())
+    {
+        LogEntry prevEntry = node_.log_.getEntry(prevLogIndex);
+        if (prevEntry.term != prevLogTerm)
+        {
+            Logger::log("AppendEntries failed: log inconsistency at prevLogIndex " +
+                        std::to_string(prevLogIndex));
+            response->set_term(node_.getCurrentTerm());
+            response->set_success(false);
+            return grpc::Status::OK;
+        }
+    }
+    else if (prevLogIndex > node_.log_.getLastIndex())
+    {
+        Logger::log("AppendEntries failed: prevLogIndex " + std::to_string(prevLogIndex) + " not found");
+        response->set_term(node_.getCurrentTerm());
+        response->set_success(false);
+        return grpc::Status::OK;
+    }
+
+    int lastLogIndex = node_.log_.getLastIndex();
+    for (int i = 0; i < request->entries_size(); i++)
+    {
+        const auto& entry = request->entries(i);
+        int entryIndex = entry.index();
+
+        if (entryIndex <= lastLogIndex)
+        {
+            LogEntry existing = node_.log_.getEntry(entryIndex);
+            if (existing.term != entry.term())
+            {
+                Logger::log("Conflict at index " + std::to_string(entryIndex) + ", deleting from here");
+                node_.log_.deleteEntriesFrom(entryIndex);
+                break;
+            }
+            else
+            {
+                Logger::log("Entry already exists at index " + std::to_string(entryIndex) + ", skipping");
+                continue;
+            }
+        }
+
+        CommandType cmdType;
+        std::string key, value;
+        if (entry.command().has_set())
+        {
+            cmdType = CommandType::PUT;
+            key = entry.command().set().key();
+            value = entry.command().set().value();
+        }
+        else if (entry.command().has_delete_())
+        {
+            cmdType = CommandType::DELETE;
+            key = entry.command().delete_().key();
+        }
+        else
+        {
+            Logger::log("Unknown command in AppendEntries");
+            continue;
+        }
+
+        LogEntry logEntry(entry.term(), cmdType, entryIndex, key, value);
+        node_.log_.addEntry(logEntry);
+
+        Logger::log("Appended log entry: term=" + std::to_string(entry.term()) +
+                    ", index=" + std::to_string(entryIndex) +
+                    ", command=" + (cmdType == CommandType::PUT ? "PUT" : "DELETE") +
+                    ", key=" + key +
+                    (cmdType == CommandType::PUT ? ", value=" + value : ""));
+    }
+
+    // Update commit index
+    if (request->leadercommit() > node_.getCommitIndex())
+    {
+        auto newCommitIndex = std::min(
+            request->leadercommit(),
+            static_cast<uint64_t>(node_.log_.getLastIndex())
+        );
+        node_.setCommitIndex(newCommitIndex);
+        Logger::log("Commit index updated to " + std::to_string(newCommitIndex));
+        node_.applyLogs();
     }
 
     response->set_term(node_.getCurrentTerm());
     response->set_success(true);
-    Logger::log("Responding to AppendEntries with term " + std::to_string(node_.getCurrentTerm()) +
-                " and success status: true");
-    Logger::log("Lock guard AppendEntries finished");
+    Logger::log("AppendEntries success response sent");
+
     return grpc::Status::OK;
 }
 

@@ -97,12 +97,55 @@ class RaftNode
         return mutex_;
     }
 
+    int getCommitIndex() const
+    {
+        return commit_index_.load();
+    }
+
+    void setCommitIndex(int commit_index)
+    {
+        commit_index_ = commit_index;
+    }
+
     void setLeaderId(const std::string &leader_id);
     [[nodiscard]] std::string getLeaderAddress() const;
     bool isLeader() const;
+    void applyLogs();
+    Log log_;
+
+    std::string getValue(const std::string& key) const
+    {
+        auto it = kv_store_.find(key);
+        if (it != kv_store_.end()) {
+            return it->second;
+        }
+        return "";
+    }
+
+    void setValue(const std::string& key, const std::string& value)
+    {
+        kv_store_[key] = value;
+    }
+
+    void deleteKey(const std::string& key)
+    {
+        kv_store_.erase(key);
+    }
+
+    int getLastApplied() const
+    {
+        return last_applied_.load();
+    }
+
+    void setLastApplied(int last_applied)
+    {
+        last_applied_ = last_applied;
+    }
+
+    std::unordered_map<std::string, std::string> kv_store_;
 
   private:
-    Log log_;
+
     bool tryToBecameLeader();
     std::mutex mutex_;
     NodeConfig config_;
@@ -113,6 +156,11 @@ class RaftNode
     Ticker ticker_;
     int heartbeat_timeout_;
     std::string leader_id_{};
+    std::atomic<int> commit_index_{0};
+    std::atomic<int> last_applied_{0};
+
+    std::unordered_map<std::string, int> matchIndex;
+    std::unordered_map<std::string, int> nextIndex;
 };
 
 #endif

@@ -9,33 +9,47 @@
 #include <proto/raft.pb.h>
 #include <random>
 #include <thread>
-
 void RaftNode::sendHeartbeats()
 {
     while (getState() == NodeState::LEADER)
     {
         Logger::log("Sending heartbeats lock");
-       mutex_.lock();
+        mutex_.lock();
+
+        auto selfId = config_.getId();
+        int currentTerm = getCurrentTerm();
+        int commitIndex = getCommitIndex();
+
+        int quorum = node_configs_.size() / 2 + 1;
+
         for (const auto &item : node_configs_)
         {
-            if (config_.getId() == item.getId())
+            std::string nodeId = item.getId();
+            if (nodeId == selfId)
                 continue;
-            // Logger::log("Start sending to " + item.getId() + " " + config_.getId());
-            raft_protocol::AppendEntriesRequest request;
-            request.set_term(getCurrentTerm());
-            request.set_leaderid(config_.getId());
-            int prevLogIndex = log_.getLastIndex();
-            request.set_prevlogindex(prevLogIndex);
-            request.set_prevlogterm(log_.getLastTerm());
 
-            for (const auto &logEntry : log_.getEntriesAfter(prevLogIndex))
+            if (nextIndex.find(nodeId) == nextIndex.end())
+                nextIndex[nodeId] = log_.getLastIndex() + 1;
+
+            int nextIdx = nextIndex[nodeId];
+            int prevIdx = nextIdx - 1;
+            int prevTerm = prevIdx > 0 ? log_.getEntry(prevIdx).term : 0;
+
+            raft_protocol::AppendEntriesRequest request;
+            request.set_term(currentTerm);
+            request.set_leaderid(selfId);
+            request.set_leadercommit(commitIndex);
+            request.set_prevlogindex(prevIdx);
+            request.set_prevlogterm(prevTerm);
+
+            std::vector<LogEntry> entriesToSend = log_.getEntriesAfter(prevIdx);
+            for (const auto &logEntry : entriesToSend)
             {
                 auto *entry = request.add_entries();
                 entry->set_term(logEntry.term);
                 entry->set_index(logEntry.index);
 
                 raft_protocol::Command *command = entry->mutable_command();
-
                 if (logEntry.command == CommandType::PUT)
                 {
                     auto *set_cmd = command->mutable_set();
@@ -61,30 +75,67 @@ void RaftNode::sendHeartbeats()
                 grpc::InsecureChannelCredentials(),
                 channel_args
             );
-
             auto stub = raft_protocol::RaftService::NewStub(channel);
 
             grpc::Status status = stub->AppendEntries(&context, request, &response);
             if (status.ok())
             {
-                Logger::log("Sent success to " + item.getId());
+                Logger::log("Sent success to " + nodeId);
 
-                if (getCurrentTerm() < response.term())
+                if (response.term() > currentTerm)
                 {
                     setCurrentTerm(response.term());
                     setState(NodeState::FOLLOWER);
-                    break;
+                    mutex_.unlock();
+                    return;
                 }
-            }else
+
+                if (response.success())
+                {
+                    int lastSent = request.entries_size() > 0
+                        ? request.entries(request.entries_size() - 1).index()
+                        : prevIdx;
+
+                    matchIndex[nodeId] = lastSent;
+                    nextIndex[nodeId] = lastSent + 1;
+                    Logger::log("Heartbeat success, updated nextIndex and matchIndex for " + nodeId);
+                }
+                else
+                {
+                    nextIndex[nodeId] = std::max(1, nextIndex[nodeId] - 1);
+                    Logger::log("Heartbeat failed, decremented nextIndex for " + nodeId);
+                }
+            }
+            else
             {
-                Logger::log("Sent failed " + item.getId());
+                Logger::log("RPC failed to " + nodeId);
+            }
+        }
+        int lastIndex = log_.getLastIndex();
+        for (int N = lastIndex; N > commitIndex; --N)
+        {
+            if (log_.getEntry(N).term != currentTerm)
+                continue;
+
+            int count = 1; // self
+            for (const auto &[nodeId, matchedIdx] : matchIndex)
+            {
+                if (matchedIdx >= N)
+                    count++;
             }
 
+            if (count >= quorum)
+            {
+                setCommitIndex(N);
+                applyLogs();
+                Logger::log("Commit index advanced to " + std::to_string(N));
+                break;
+            }
         }
+
         Logger::log("Sending heartbeats unlock");
         mutex_.unlock();
-        std::this_thread::sleep_for(
-            std::chrono::milliseconds(heartbeat_timeout_));
+        std::this_thread::sleep_for(std::chrono::milliseconds(heartbeat_timeout_));
     }
 }
 
@@ -114,6 +165,10 @@ bool RaftNode::tryToBecameLeader()
             Logger::log("Skipping voting request for self (Node ID: " + config_.getId() + ")");
             continue;
         }
+
+        nextIndex[item.getId()] = log_.getLastIndex() + 1;
+        matchIndex[item.getId()] = 0;
+
 
         Logger::log("Node " + config_.getId() + " requesting vote from Node " +
                     item.getId() + " for term " + std::to_string(current_term_));
@@ -227,4 +282,28 @@ std::string RaftNode::getLeaderAddress() const
 bool RaftNode::isLeader() const
 {
     return this->config_.getId() == leader_id_;
+}
+
+void RaftNode::applyLogs()
+{
+    while (getLastApplied() < getCommitIndex())
+    {
+        uint64_t indexToApply = getLastApplied() + 1;
+        LogEntry logEntry = log_.getEntry(indexToApply);
+        if (logEntry.command == CommandType::PUT)
+        {
+            setValue(logEntry.key, logEntry.value);
+        }
+        else if (logEntry.command == CommandType::DELETE)
+        {
+            deleteKey(logEntry.key);  // Apply the 'DELETE' command
+        }
+
+        setLastApplied(indexToApply);
+        Logger::log("Applied log entry: term=" + std::to_string(logEntry.term) +
+                    ", index=" + std::to_string(indexToApply) +
+                    ", command=" + (logEntry.command == CommandType::PUT ? "PUT" : "DELETE") +
+                    ", key=" + logEntry.key +
+                    (logEntry.command == CommandType::PUT ? ", value=" + logEntry.value : ""));
+    }
 }

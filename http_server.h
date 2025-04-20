@@ -10,7 +10,7 @@
 class RaftHTTPServer
 {
   public:
-    explicit RaftHTTPServer(const std::shared_ptr<grpc::ChannelInterface> &channel, const RaftNode &raft_node)
+    explicit RaftHTTPServer(const std::shared_ptr<grpc::ChannelInterface> &channel, RaftNode &raft_node)
         : stub_(raft_protocol::RaftService::NewStub(channel)), raft_node_(raft_node)
     {
     }
@@ -19,7 +19,7 @@ class RaftHTTPServer
 
   private:
     std::unique_ptr<raft_protocol::RaftService::Stub> stub_;
-    const RaftNode &raft_node_;
+  RaftNode &raft_node_;
 };
 
 #endif // HTTP_SERVER_H
