@@ -63,6 +63,8 @@ grpc::Status RaftServiceImpl::AppendEntries(grpc::ServerContext *context,
 
     if (request->term() >= node_.getCurrentTerm())
     {
+        node_.setLeaderId(request->leaderid());
+
         Logger::log("AppendEntries: Updating current term from " + std::to_string(node_.getCurrentTerm()) + " to " +
                     std::to_string(request->term()));
         node_.setCurrentTerm(request->term());
@@ -110,11 +112,10 @@ void RunServer(const RaftConfig &config)
 
     std::thread server_thread([&server]() { server->Wait(); });
 
-    std::thread httpThread([server_address, it]()
-                          {
-                              RaftHTTPServer httpServer(grpc::CreateChannel(server_address, grpc::InsecureChannelCredentials()));
-                              httpServer.start( it->getPort());
-                          });
+    std::thread httpThread([server_address, it, &cur_node]() {
+        RaftHTTPServer httpServer(grpc::CreateChannel(server_address, grpc::InsecureChannelCredentials()), cur_node);
+        httpServer.start(it->getHttpPort());
+    });
     httpThread.join();
     server_thread.join();
 }

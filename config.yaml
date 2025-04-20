@@ -2,17 +2,22 @@ nodes:
   - id: 1
     address: "0.0.0.0"
     port: 5001
+    http_port: 7001
   - id: 2
     address: "0.0.0.0"
     port: 5002
+    http_port: 7002
   - id: 3
     address: "0.0.0.0"
     port: 5003
+    http_port: 7003
   - id: 4
     address: "0.0.0.0"
     port: 8001
+    http_port: 7004
   - id: 5
     address: "0.0.0.0"
     port: 8002
+    http_port: 7005
 election_timeout: 500
 heartbeat_timeout: 100

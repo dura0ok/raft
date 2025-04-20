@@ -24,6 +24,19 @@ void RaftNode::sendHeartbeats()
             raft_protocol::AppendEntriesRequest request;
             request.set_term(getCurrentTerm());
             request.set_leaderid(config_.getId());
+            int prevLogIndex = log_.getLastIndex();
+            request.set_prevlogindex(prevLogIndex);
+            request.set_prevlogterm(log_.getLastTerm());
+
+            for (const auto &logEntry : log_.getEntriesAfter(prevLogIndex))
+            {
+                raft_protocol::LogEntry *log_entry = request.add_entries();
+                log_entry->set_term(logEntry.term);
+                log_entry->set_command(static_cast<raft_protocol::CommandType>(logEntry.command));
+                log_entry->set_index(logEntry.index);
+                log_entry->set_key(logEntry.key);
+                log_entry->set_value(logEntry.value);
+            }
 
             raft_protocol::AppendEntriesResponse response;
             grpc::ClientContext context;
@@ -31,18 +44,7 @@ void RaftNode::sendHeartbeats()
 
             grpc::ChannelArguments channel_args;
             channel_args.SetInt(GRPC_ARG_ENABLE_RETRIES, 0);
-            // constexpr absl::string_view kRetryPolicy =
-            // "{\"methodConfig\" : [{"
-            // "   \"retryPolicy\": {"
-            // "     \"initialBackoff\": \"0.01s\","
-            // "     \"maxAttempts\": 10,"
-            // "     \"maxBackoff\": \"0.01s\","
-            // "     \"backoffMultiplier\": 1.0,"
-            // "     \"retryableStatusCodes\": [\"UNAVAILABLE\"]"
-            // "    }"
-            // "}]}";
-            //
-            // channel_args.SetServiceConfigJSON(std::string(kRetryPolicy));
+
             auto channel = grpc::CreateCustomChannel(
                 item.getAddress() + ":" + std::to_string(item.getPort()),
                 grpc::InsecureChannelCredentials(),
@@ -114,17 +116,6 @@ bool RaftNode::tryToBecameLeader()
         context.set_deadline(std::chrono::system_clock::now() + std::chrono::milliseconds(100));
 
         grpc::ChannelArguments channel_args;
-        // constexpr absl::string_view kRetryPolicy =
-        // "{\"methodConfig\" : [{"
-        // "   \"retryPolicy\": {"
-        // "     \"initialBackoff\": \"0.01s\","
-        // "     \"maxAttempts\": 10,"
-        // "     \"maxBackoff\": \"0.01s\","
-        // "     \"backoffMultiplier\": 1.0,"
-        // "     \"retryableStatusCodes\": [\"UNAVAILABLE\"]"
-        // "    }"
-        // "}]}";
-
 
         auto channel = grpc::CreateCustomChannel(
             item.getAddress() + ":" + std::to_string(item.getPort()),
@@ -172,6 +163,7 @@ bool RaftNode::tryToBecameLeader()
         setState(NodeState::LEADER);
         Logger::log("Node " + config_.getId() + " has won the election and is now the LEADER for term " +
                     std::to_string(current_term_));
+        setLeaderId(config_.getId());
 
         return true;
     }
@@ -186,6 +178,7 @@ bool RaftNode::tryToBecameLeader()
 
 void RaftNode::startElection()
 {
+    setLeaderId("");
     const auto res = tryToBecameLeader();
     Logger::log("Successfully log guard tryToBecameLeader");
     if (res)
@@ -199,4 +192,26 @@ void RaftNode::resetElectionTimer()
 {
     Logger::log("Resetting election timer");
     ticker_.reset();
+}
+
+void RaftNode::setLeaderId(const std::string &leader_id)
+{
+    leader_id_ = leader_id;
+}
+
+std::string RaftNode::getLeaderAddress() const
+{
+    for (const auto &node : node_configs_)
+    {
+        if (node.getId() == leader_id_)
+        {
+            return node.getAddress() + ":" + std::to_string(node.getHttpPort());
+        }
+    }
+    return "";
+}
+
+bool RaftNode::isLeader() const
+{
+    return this->config_.getId() == leader_id_;
 }

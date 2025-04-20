@@ -11,11 +11,12 @@ RaftConfig initConfig(const std::string &path, const std::string &current_node_i
 
     for (const auto &node : yamlConfig["nodes"])
     {
-        config.nodes.push_back({node["id"].as<std::string>(), node["address"].as<std::string>(), node["port"].as<int>()});
+        config.nodes.emplace_back(node["id"].as<std::string>(), node["address"].as<std::string>(),
+                                  node["port"].as<int>(), node["http_port"].as<int>());
     }
 
     config.election_timeout = yamlConfig["election_timeout"].as<int>();
     config.hearbeat_timeout = yamlConfig["heartbeat_timeout"].as<int>();
-    config.current_node_id = std::move(current_node_id);
+    config.current_node_id = current_node_id;
     return config;
 }

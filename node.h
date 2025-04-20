@@ -1,6 +1,7 @@
 #ifndef NODE_H
 #define NODE_H
 
+#include "log_entry.h"
 #include "ticker.h"
 #include <atomic>
 #include <condition_variable>
@@ -20,7 +21,8 @@ enum class NodeState
 class NodeConfig
 {
   public:
-    NodeConfig(const std::string& id, std::string address, const int port) : id_(id), address_(std::move(address)), port_(port)
+    NodeConfig(const std::string &id, std::string address, const int port, const int http_port_)
+        : id_(id), address_(std::move(address)), port_(port), http_port_(http_port_)
     {
     }
 
@@ -37,10 +39,16 @@ class NodeConfig
         return port_;
     }
 
+    [[nodiscard]] int getHttpPort() const
+    {
+        return http_port_;
+    }
+
   private:
     std::string id_;
     std::string address_;
     int port_;
+    int http_port_;
 };
 
 class RaftNode
@@ -89,7 +97,12 @@ class RaftNode
         return mutex_;
     }
 
+    void setLeaderId(const std::string &leader_id);
+    [[nodiscard]] std::string getLeaderAddress() const;
+    bool isLeader() const;
+
   private:
+    Log log_;
     bool tryToBecameLeader();
     std::mutex mutex_;
     NodeConfig config_;
@@ -99,6 +112,7 @@ class RaftNode
     const std::vector<NodeConfig> &node_configs_;
     Ticker ticker_;
     int heartbeat_timeout_;
+    std::string leader_id_{};
 };
 
 #endif
