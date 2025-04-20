@@ -49,7 +49,6 @@ grpc::Status RaftServiceImpl::RequestForVote(grpc::ServerContext *context,
 
     return grpc::Status::OK;
 }
-
 grpc::Status RaftServiceImpl::AppendEntries(grpc::ServerContext *context,
                                             const raft_protocol::AppendEntriesRequest *request,
                                             raft_protocol::AppendEntriesResponse *response)
@@ -59,6 +58,7 @@ grpc::Status RaftServiceImpl::AppendEntries(grpc::ServerContext *context,
 
     std::lock_guard lock(node_.getMutex());
 
+    // Rule 1: Reply false if term < currentTerm (§5.1)
     if (request->term() < node_.getCurrentTerm())
     {
         response->set_term(node_.getCurrentTerm());
@@ -67,63 +67,70 @@ grpc::Status RaftServiceImpl::AppendEntries(grpc::ServerContext *context,
         return grpc::Status::OK;
     }
 
+    // If term is newer, update
     if (request->term() > node_.getCurrentTerm())
     {
         Logger::log("Updating term from " + std::to_string(node_.getCurrentTerm()) +
                     " to " + std::to_string(request->term()));
         node_.setCurrentTerm(request->term());
+        node_.setVotedFor("");
     }
 
     node_.setLeaderId(request->leaderid());
     node_.setState(NodeState::FOLLOWER);
-    node_.setVotedFor(request->leaderid());
     node_.resetElectionTimer();
 
     const int prevLogIndex = request->prevlogindex();
     const int prevLogTerm = request->prevlogterm();
 
-    if (prevLogIndex > 0 && prevLogIndex <= node_.log_.getLastIndex())
+    // Rule 2: Reply false if log doesn't contain an entry at prevLogIndex whose term matches prevLogTerm (§5.3)
+    if (prevLogIndex > 0)
     {
+        if (prevLogIndex > node_.log_.getLastIndex())
+        {
+            Logger::log("AppendEntries failed: prevLogIndex " + std::to_string(prevLogIndex) + " not found");
+            response->set_term(node_.getCurrentTerm());
+            response->set_success(false);
+            return grpc::Status::OK;
+        }
+
         LogEntry prevEntry = node_.log_.getEntry(prevLogIndex);
         if (prevEntry.term != prevLogTerm)
         {
-            Logger::log("AppendEntries failed: log inconsistency at prevLogIndex " +
+            Logger::log("AppendEntries failed: log term mismatch at prevLogIndex " +
                         std::to_string(prevLogIndex));
             response->set_term(node_.getCurrentTerm());
             response->set_success(false);
             return grpc::Status::OK;
         }
     }
-    else if (prevLogIndex > node_.log_.getLastIndex())
-    {
-        Logger::log("AppendEntries failed: prevLogIndex " + std::to_string(prevLogIndex) + " not found");
-        response->set_term(node_.getCurrentTerm());
-        response->set_success(false);
-        return grpc::Status::OK;
-    }
 
-    int lastLogIndex = node_.log_.getLastIndex();
-    for (int i = 0; i < request->entries_size(); i++)
+    // Rule 3 & 4: Delete conflicting entries and append new ones
+    int index = prevLogIndex + 1;
+    int logLastIndex = node_.log_.getLastIndex();
+
+    for (int i = 0; i < request->entries_size(); i++, index++)
     {
         const auto& entry = request->entries(i);
-        int entryIndex = entry.index();
 
-        if (entryIndex <= lastLogIndex)
+        if (index <= logLastIndex)
         {
-            LogEntry existing = node_.log_.getEntry(entryIndex);
+            LogEntry existing = node_.log_.getEntry(index);
             if (existing.term != entry.term())
             {
-                Logger::log("Conflict at index " + std::to_string(entryIndex) + ", deleting from here");
-                node_.log_.deleteEntriesFrom(entryIndex);
-                break;
+                Logger::log("Conflict at index " + std::to_string(index) + ", deleting from here");
+                node_.log_.deleteEntriesFrom(index);
+                logLastIndex = index - 1;
+                // Continue to add new entries below
             }
             else
             {
-                Logger::log("Entry already exists at index " + std::to_string(entryIndex) + ", skipping");
+                Logger::log("Entry already exists at index " + std::to_string(index) + ", skipping");
                 continue;
             }
         }
 
+        // Entry is new or after deletion
         CommandType cmdType;
         std::string key, value;
         if (entry.command().has_set())
@@ -143,21 +150,21 @@ grpc::Status RaftServiceImpl::AppendEntries(grpc::ServerContext *context,
             continue;
         }
 
-        LogEntry logEntry(entry.term(), cmdType, entryIndex, key, value);
+        LogEntry logEntry(entry.term(), cmdType, entry.index(), key, value);
         node_.log_.addEntry(logEntry);
 
         Logger::log("Appended log entry: term=" + std::to_string(entry.term()) +
-                    ", index=" + std::to_string(entryIndex) +
+                    ", index=" + std::to_string(entry.index()) +
                     ", command=" + (cmdType == CommandType::PUT ? "PUT" : "DELETE") +
                     ", key=" + key +
                     (cmdType == CommandType::PUT ? ", value=" + value : ""));
     }
 
-    // Update commit index
+    // Rule 5: Update commit index
     if (request->leadercommit() > node_.getCommitIndex())
     {
-        auto newCommitIndex = std::min(
-            request->leadercommit(),
+        uint64_t newCommitIndex = std::min(
+            static_cast<uint64_t>(request->leadercommit()),
             static_cast<uint64_t>(node_.log_.getLastIndex())
         );
         node_.setCommitIndex(newCommitIndex);

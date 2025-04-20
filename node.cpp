@@ -13,14 +13,18 @@ void RaftNode::sendHeartbeats()
 {
     while (getState() == NodeState::LEADER)
     {
-        Logger::log("Sending heartbeats lock");
+        Logger::log("💓 [Heartbeat] Acquiring lock to send heartbeats");
         mutex_.lock();
 
         auto selfId = config_.getId();
         int currentTerm = getCurrentTerm();
         int commitIndex = getCommitIndex();
-
         int quorum = node_configs_.size() / 2 + 1;
+
+        Logger::log("💓 [Heartbeat] Leader: " + selfId +
+                    ", Term: " + std::to_string(currentTerm) +
+                    ", CommitIndex: " + std::to_string(commitIndex) +
+                    ", Quorum: " + std::to_string(quorum));
 
         for (const auto &item : node_configs_)
         {
@@ -35,6 +39,11 @@ void RaftNode::sendHeartbeats()
             int prevIdx = nextIdx - 1;
             int prevTerm = prevIdx > 0 ? log_.getEntry(prevIdx).term : 0;
 
+            Logger::log("➡️  [Send] Preparing AppendEntries to " + nodeId +
+                        " (nextIdx=" + std::to_string(nextIdx) +
+                        ", prevIdx=" + std::to_string(prevIdx) +
+                        ", prevTerm=" + std::to_string(prevTerm) + ")");
+
             raft_protocol::AppendEntriesRequest request;
             request.set_term(currentTerm);
             request.set_leaderid(selfId);
@@ -42,9 +51,9 @@ void RaftNode::sendHeartbeats()
             request.set_prevlogindex(prevIdx);
             request.set_prevlogterm(prevTerm);
 
-            std::vector<LogEntry> entriesToSend = log_.getEntriesAfter(prevIdx);
-            for (const auto &logEntry : entriesToSend)
+            if (nextIdx <= log_.getLastIndex())
             {
+                LogEntry logEntry = log_.getEntry(nextIdx);
                 auto *entry = request.add_entries();
                 entry->set_term(logEntry.term);
                 entry->set_index(logEntry.index);
@@ -55,18 +64,22 @@ void RaftNode::sendHeartbeats()
                     auto *set_cmd = command->mutable_set();
                     set_cmd->set_key(logEntry.key);
                     set_cmd->set_value(logEntry.value);
+                    Logger::log("📦 [Entry] PUT " + logEntry.key + " = " + logEntry.value);
                 }
                 else if (logEntry.command == CommandType::DELETE)
                 {
                     auto *del_cmd = command->mutable_delete_();
                     del_cmd->set_key(logEntry.key);
+                    Logger::log("📦 [Entry] DELETE " + logEntry.key);
                 }
             }
+            else
+            {
+                Logger::log("📭 [Heartbeat] No new entries for " + nodeId + ", sending empty heartbeat");
+            }
 
-            raft_protocol::AppendEntriesResponse response;
             grpc::ClientContext context;
             context.set_deadline(std::chrono::system_clock::now() + std::chrono::milliseconds(100));
-
             grpc::ChannelArguments channel_args;
             channel_args.SetInt(GRPC_ARG_ENABLE_RETRIES, 0);
 
@@ -77,15 +90,29 @@ void RaftNode::sendHeartbeats()
             );
             auto stub = raft_protocol::RaftService::NewStub(channel);
 
+            raft_protocol::AppendEntriesResponse response;
             grpc::Status status = stub->AppendEntries(&context, request, &response);
+
             if (status.ok())
             {
-                Logger::log("Sent success to " + nodeId);
+                Logger::log("✅ [RPC OK] Response from " + nodeId +
+                            " | term=" + std::to_string(response.term()) +
+                            " | success=" + std::to_string(response.success()));
 
                 if (response.term() > currentTerm)
                 {
+                    Logger::log("⚠️  [Term Mismatch] Received higher term from " + nodeId +
+                                ": " + std::to_string(response.term()) +
+                                " > " + std::to_string(currentTerm));
                     setCurrentTerm(response.term());
                     setState(NodeState::FOLLOWER);
+                    mutex_.unlock();
+                    return;
+                }
+
+                if (getState() != NodeState::LEADER || getCurrentTerm() != currentTerm)
+                {
+                    Logger::log("🛑 [Abort] No longer leader or term changed");
                     mutex_.unlock();
                     return;
                 }
@@ -98,19 +125,23 @@ void RaftNode::sendHeartbeats()
 
                     matchIndex[nodeId] = lastSent;
                     nextIndex[nodeId] = lastSent + 1;
-                    Logger::log("Heartbeat success, updated nextIndex and matchIndex for " + nodeId);
+                    Logger::log("✅ [Success] Updated matchIndex[" + nodeId + "] = " + std::to_string(lastSent));
+                    Logger::log("➡️  [Update] nextIndex[" + nodeId + "] = " + std::to_string(lastSent + 1));
                 }
                 else
                 {
                     nextIndex[nodeId] = std::max(1, nextIndex[nodeId] - 1);
-                    Logger::log("Heartbeat failed, decremented nextIndex for " + nodeId);
+                    Logger::log("❌ [Rejected] Append failed — backoff nextIndex[" + nodeId + "] = " +
+                                std::to_string(nextIndex[nodeId]));
                 }
             }
             else
             {
-                Logger::log("RPC failed to " + nodeId);
+                Logger::log("🚫 [RPC FAIL] Failed to contact " + nodeId +
+                            " | Error: " + status.error_message());
             }
         }
+
         int lastIndex = log_.getLastIndex();
         for (int N = lastIndex; N > commitIndex; --N)
         {
@@ -126,18 +157,21 @@ void RaftNode::sendHeartbeats()
 
             if (count >= quorum)
             {
+                Logger::log("🎯 [Commit] Advancing commit index to " + std::to_string(N));
                 setCommitIndex(N);
                 applyLogs();
-                Logger::log("Commit index advanced to " + std::to_string(N));
                 break;
             }
         }
 
-        Logger::log("Sending heartbeats unlock");
+        Logger::log("🔓 [Heartbeat] Releasing lock");
         mutex_.unlock();
         std::this_thread::sleep_for(std::chrono::milliseconds(heartbeat_timeout_));
     }
+
+    Logger::log("🛑 [Heartbeat Thread] Exiting — no longer LEADER");
 }
+
 
 bool RaftNode::tryToBecameLeader()
 {
