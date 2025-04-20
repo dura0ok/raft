@@ -3,74 +3,20 @@ syntax = "proto3";
 package raft_protocol;
 option go_package = "./raft_protocol";
 
-message Value {
-  message Null {}
-
-  message Boolean {
-    bool value = 1;
-  }
-
-  message Number {
-    double value = 1;
-  }
-
-  message String {
-    string value = 1;
-  }
-
-  message Array {
-    repeated Value value = 1;
-  }
-
-  message Object {
-    map<string, Value> value = 1;
-  }
-
-  oneof Type {
-    String string = 1;
-    Boolean boolean = 2;
-    Number number = 3;
-    Array array = 4;
-    Object object = 5;
-    Null null = 6;
-  }
-}
-
 message Command {
-  message Get {
-    string key = 1;
-  }
-
   message Set {
     string key = 1;
-    Value value = 2;
-  }
-
-  message CompareAndSet {
-    string key = 1;
-    Value oldValue = 2;
-    Value NewValue = 3;
+    string value = 2;
   }
 
   message Delete {
     string key = 1;
   }
 
-  message AddElement {
-    string key = 1;
-    string subKey = 2;
-    Value value = 3;
-  }
-
   oneof Type {
-    Get get = 2;
-    Set set = 3;
-    CompareAndSet compareAndSet = 4;
-    Delete delete = 5;
-    AddElement addElement = 6;
+    Set set = 1;
+    Delete delete = 2;
   }
-
-  string id = 1;
 }
 
 message LogEntry {
@@ -102,8 +48,6 @@ message AppendEntriesRequest {
 message AppendEntriesResponse {
   uint32 term = 1;
   bool success = 2;
-  uint32 conflictTerm = 3;
-  uint64 conflictIndex = 4;
 }
 
 service RaftService {
