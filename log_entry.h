@@ -6,7 +6,7 @@
 enum class CommandType
 {
     PUT,
-    GET,
+    DELETE,
 };
 
 struct LogEntry

@@ -30,12 +30,23 @@ void RaftNode::sendHeartbeats()
 
             for (const auto &logEntry : log_.getEntriesAfter(prevLogIndex))
             {
-                raft_protocol::LogEntry *log_entry = request.add_entries();
-                log_entry->set_term(logEntry.term);
-                log_entry->set_command(static_cast<raft_protocol::CommandType>(logEntry.command));
-                log_entry->set_index(logEntry.index);
-                log_entry->set_key(logEntry.key);
-                log_entry->set_value(logEntry.value);
+                auto *entry = request.add_entries();
+                entry->set_term(logEntry.term);
+                entry->set_index(logEntry.index);
+
+                raft_protocol::Command *command = entry->mutable_command();
+
+                if (logEntry.command == CommandType::PUT)
+                {
+                    auto *set_cmd = command->mutable_set();
+                    set_cmd->set_key(logEntry.key);
+                    set_cmd->set_value(logEntry.value);
+                }
+                else if (logEntry.command == CommandType::DELETE)
+                {
+                    auto *del_cmd = command->mutable_delete_();
+                    del_cmd->set_key(logEntry.key);
+                }
             }
 
             raft_protocol::AppendEntriesResponse response;
@@ -110,6 +121,8 @@ bool RaftNode::tryToBecameLeader()
         raft_protocol::RequestVoteRequest request;
         request.set_term(current_term_);
         request.set_candidateid(config_.getId());
+        request.set_lastlogindex(log_.getLastIndex());
+        request.set_lastlogterm(log_.getLastTerm());
 
         raft_protocol::RequestVoteResponse response;
         grpc::ClientContext context;

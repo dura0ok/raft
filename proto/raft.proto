@@ -20,6 +20,7 @@ message Command {
 }
 
 message LogEntry {
+  uint64 index = 1;
   uint32 term = 2;
   Command command = 3;
 }
