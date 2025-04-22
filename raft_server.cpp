@@ -83,6 +83,8 @@ grpc::Status RaftServiceImpl::AppendEntries(grpc::ServerContext *context,
     const int prevLogIndex = request->prevlogindex();
     const int prevLogTerm = request->prevlogterm();
 
+    Logger::log("checking rule 2");
+
     // Rule 2: Reply false if log doesn't contain an entry at prevLogIndex whose term matches prevLogTerm (§5.3)
     if (prevLogIndex > 0)
     {
@@ -104,6 +106,8 @@ grpc::Status RaftServiceImpl::AppendEntries(grpc::ServerContext *context,
             return grpc::Status::OK;
         }
     }
+
+    Logger::log("checking rule 3 and 4");
 
     // Rule 3 & 4: Delete conflicting entries and append new ones
     int index = prevLogIndex + 1;
@@ -160,6 +164,7 @@ grpc::Status RaftServiceImpl::AppendEntries(grpc::ServerContext *context,
                     (cmdType == CommandType::PUT ? ", value=" + value : ""));
     }
 
+    Logger::log("checking rule 5");
     // Rule 5: Update commit index
     if (request->leadercommit() > node_.getCommitIndex())
     {
