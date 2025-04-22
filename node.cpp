@@ -42,6 +42,7 @@ void RaftNode::sendHeartbeats()
             Logger::log("➡️  [Send] Preparing AppendEntries to " + nodeId +
                         " (nextIdx=" + std::to_string(nextIdx) +
                         ", prevIdx=" + std::to_string(prevIdx) +
+                        ", leaderCommit=" + std::to_string(commitIndex) +
                         ", prevTerm=" + std::to_string(prevTerm) + ")");
 
             raft_protocol::AppendEntriesRequest request;
