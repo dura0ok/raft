@@ -37,7 +37,7 @@ void RaftNode::sendHeartbeats()
 
             int nextIdx = nextIndex[nodeId];
             int prevIdx = nextIdx - 1;
-            int prevTerm = prevIdx > 0 ? log_.getEntry(prevIdx).term : 0;
+            int prevTerm = prevIdx >= 0 ? log_.getEntry(prevIdx).term : 0;
 
             Logger::log("➡️  [Send] Preparing AppendEntries to " + nodeId +
                         " (nextIdx=" + std::to_string(nextIdx) +
@@ -141,28 +141,44 @@ void RaftNode::sendHeartbeats()
                             " | Error: " + status.error_message());
             }
         }
-
         int lastIndex = log_.getLastIndex();
+        Logger::log("Starting commit index update loop. lastIndex: " + std::to_string(lastIndex) + ", commitIndex: " + std::to_string(commitIndex) + ", currentTerm: " + std::to_string(currentTerm));
+
         for (int N = lastIndex; N > commitIndex; --N)
         {
+            Logger::log("Checking index N: " + std::to_string(N));
+
             if (log_.getEntry(N).term != currentTerm)
+            {
+                Logger::log("Skipping index N: " + std::to_string(N) + " because term " + std::to_string(log_.getEntry(N).term) + " does not match currentTerm " + std::to_string(currentTerm));
                 continue;
+            }
 
             int count = 1; // self
+            Logger::log("Initializing count to 1 (self) for index N: " + std::to_string(N));
+
             for (const auto &[nodeId, matchedIdx] : matchIndex)
             {
+                Logger::log("Checking node " + nodeId + " with matchedIdx: " + std::to_string(matchedIdx) + " against N: " + std::to_string(N));
                 if (matchedIdx >= N)
+                {
                     count++;
+                    Logger::log("Incrementing count because matchedIdx " + std::to_string(matchedIdx) + " >= N " + std::to_string(N) + ". New count: " + std::to_string(count));
+                }
             }
+
+            Logger::log("Final count for index N: " + std::to_string(N) + " is " + std::to_string(count) + ", Quorum is " + std::to_string(quorum));
 
             if (count >= quorum)
             {
                 Logger::log("🎯 [Commit] Advancing commit index to " + std::to_string(N));
                 setCommitIndex(N);
                 applyLogs();
+                Logger::log("Commit index advanced to " + std::to_string(N) + ". Breaking the loop.");
                 break;
             }
         }
+
 
         Logger::log("🔓 [Heartbeat] Releasing lock");
         mutex_.unlock();
