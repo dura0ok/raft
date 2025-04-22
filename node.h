@@ -156,8 +156,8 @@ class RaftNode
     Ticker ticker_;
     int heartbeat_timeout_;
     std::string leader_id_{};
-    std::atomic<int> commit_index_{0};
-    std::atomic<int> last_applied_{0};
+    std::atomic<int> commit_index_{-1};
+    std::atomic<int> last_applied_{-1};
 
     std::unordered_map<std::string, int> matchIndex;
     std::unordered_map<std::string, int> nextIndex;

@@ -217,7 +217,7 @@ bool RaftNode::tryToBecameLeader()
         }
 
         nextIndex[item.getId()] = log_.getLastIndex() + 1;
-        matchIndex[item.getId()] = 0;
+        matchIndex[item.getId()] = -1;
 
 
         Logger::log("Node " + config_.getId() + " requesting vote from Node " +
