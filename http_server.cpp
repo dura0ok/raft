@@ -26,8 +26,12 @@ void RaftHTTPServer::start(int port)
     CROW_ROUTE(app, "/put").methods(crow::HTTPMethod::Post)([this](const crow::request &req) {
         if (!raft_node_.isLeader())
         {
+            std::string leaderAddr = raft_node_.getLeaderAddress();
+            if (leaderAddr.empty()) {
+                return crow::response(503, crow::json::wvalue{{"error", "Leader not known"}});
+            }
             crow::response res(307);
-            res.add_header("Location", "http://" + raft_node_.getLeaderAddress() + "/put");
+            res.add_header("Location", "http://" + leaderAddr + "/put");
             return res;
         }
 
@@ -50,6 +54,35 @@ void RaftHTTPServer::start(int port)
 
         return crow::response(200, crow::json::wvalue{{"result", "ok"}});
     });
+
+    CROW_ROUTE(app, "/delete/<string>")
+    .methods(crow::HTTPMethod::Delete)([this](const crow::request & /*req*/, const std::string &key) {
+        if (!raft_node_.isLeader())
+        {
+            std::string leaderAddr = raft_node_.getLeaderAddress();
+            if (leaderAddr.empty()) {
+                return crow::response(503, crow::json::wvalue{{"error", "Leader not known"}});
+            }
+            crow::response res(307);
+            res.add_header("Location", "http://" + leaderAddr + "/delete/" + key);
+            return res;
+        }
+
+        // Check if key exists
+        if (raft_node_.kv_store_.find(key) == raft_node_.kv_store_.end()) {
+            return crow::response(404, crow::json::wvalue{{"error", "Key not found"}});
+        }
+
+        int term = raft_node_.getCurrentTerm();
+        int index = raft_node_.log_.getLastIndex() + 1;
+
+        LogEntry entry(term, CommandType::DELETE, index, key, "");
+        raft_node_.log_.addEntry(entry);
+
+        return crow::response(200, crow::json::wvalue{{"result", "ok"}});
+    });
+
+
 
 
     CROW_ROUTE(app, "/get/<string>")
