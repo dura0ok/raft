@@ -54,7 +54,9 @@ grpc::Status RaftServiceImpl::AppendEntries(grpc::ServerContext *context,
                                             raft_protocol::AppendEntriesResponse *response)
 {
     Logger::log("Received AppendEntries: term = " + std::to_string(request->term()) +
-                ", leaderId = " + request->leaderid());
+                ", leaderId = " + request->leaderid() + " " + "leader commit " + std::to_string(request->leadercommit())
+                + "prev log index " + std::to_string(request->prevlogindex()) + "prev log term " + std::to_string(request->prevlogterm())
+                );
 
     std::lock_guard lock(node_.getMutex());
 

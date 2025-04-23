@@ -4,11 +4,11 @@ Content-Type: application/json
 
 {
   "key": "foo",
-  "value": "bar"
+  "value": "bar2"
 }
 
 ### GET value by key
-GET http://localhost:7003/get/foo
+GET http://localhost:7001/get/foo
 
 ### Test redirection behavior (if this node is not the leader)
 POST http://localhost:18080/put
